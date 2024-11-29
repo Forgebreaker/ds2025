@@ -1,0 +1,82 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage{fontspec} % For custom fonts
+\usepackage{listings}
+
+% Set Arial as the default font
+\setmainfont{Arial}
+
+\title{Lab 1 - TCP File Transfer}
+\author{BI12-428 - Tran Hung Thinh}
+
+
+\begin{document}
+
+\maketitle
+
+\section{Protocol}
+The server and client exchange information through the TCP socket. The protocol includes these steps:
+\begin{itemize}
+    \item The client requests the file name it wants to download from the server.
+    \item The server acknowledges the request and sends the file to the client via the socket.
+    \item The client receives the file.
+\end{itemize}
+
+\section{System Architecture}
+The system consists of two entities — the client and the server — with their respective sockets connected to each other over the network. The client initiates the connection by requesting the file, and the server responds by sending the file content over the established TCP connection. Once the client receives the file, it stores it in the specified location.
+
+\section{File Transfer}
+The server opens and reads the file content with \texttt{open(filepath, O\_RDONLY)}. After that, it uses \texttt{write(socket\_fd, buffer, length\_of\_buffer)} to send the file content to the client. Here's how it works:
+
+\begin{lstlisting}[language=C]
+int file_fd = open(filepath, O_RDONLY);
+if (file_fd < 0) {
+    exit(EXIT_FAILURE);
+}
+
+ssize_t bytes_read;
+char buf[1024];
+
+while ((bytes_read = read(file_fd, buf, sizeof(buf))) > 0) {
+    ssize_t bytes_written = write(socket_fd, buf, bytes_read);
+    if (bytes_written < 0) {
+        close(file_fd);
+        exit(EXIT_FAILURE);
+    }
+}
+
+if (bytes_read < 0) {
+    close(file_fd);
+    exit(EXIT_FAILURE);
+}
+
+close(file_fd);
+\end{lstlisting}
+
+After the server sends the file content, the client reads the content from the socket using \texttt{read(socket\_fd, buffer, length\_of\_buffer)} and stores it in the location specified by the user. Here's the client's part of the process:
+
+\begin{lstlisting}[language=C]
+int file_fd;
+char buf[1024];
+
+// Open file for writing, create if not exists, truncate if exists
+file_fd = open(save_location, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+if (file_fd == -1) {
+    exit(EXIT_FAILURE);
+}
+
+ssize_t bytes_read;
+while ((bytes_read = read(socket_fd, buf, sizeof(buf))) > 0) {
+    ssize_t bytes_written = write(file_fd, buf, bytes_read);
+    if (bytes_written < 0) {
+        exit(EXIT_FAILURE);
+    }
+}
+
+if (bytes_read < 0) {
+    exit(EXIT_FAILURE);
+}
+
+close(file_fd);
+\end{lstlisting}
+
+\end{document}

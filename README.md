@@ -9,7 +9,9 @@ Students are expected to:
 Student Info
 =========================
 
-* Student name: Trần Hưng Thịnh-BI12-428
+* Student name: Trần Hưng Thịnh
+* Student ID: BI12-428
+* Group ID: Update Later
 
 
 

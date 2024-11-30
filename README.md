@@ -11,7 +11,7 @@ Student Info
 
 * Student Name: Trần Hưng Thịnh
 * Student ID: BI12-428
-* Group ID: 1
+* Group ID: 01
 
 
 

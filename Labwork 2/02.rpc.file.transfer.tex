@@ -1,0 +1,281 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{listings}
+\usepackage{xcolor}
+
+% Define colors for code highlighting
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+% Code style
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+\title{RPC File Transfer}
+\author{Tran Hung Thinh (BI12-428)}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+The RPC File Transfer system uses \textbf{gRPC} to enable seamless file transfers between a client and a server. This document describes its design, functionality, and implementation in detail.
+
+\section{Service Definition}
+
+\subsection{Overview}
+The RPC service is defined using \textbf{Protocol Buffers (protobuf)}. It includes the following operations:
+\begin{itemize}
+    \item \textbf{SendFile:} Transfers a file from the client to the server.
+    \item \textbf{ReceiveFile:} Downloads a file from the server to the client in chunks.
+\end{itemize}
+
+\subsection{Message Types}
+The service uses custom protobuf messages:
+\begin{itemize}
+    \item \textbf{FileRequest:} Contains the file name and file content.
+    \item \textbf{FileResponse:} Indicates the success of a file transfer.
+    \item \textbf{FileChunk:} Represents chunks of a file for efficient transfer.
+    \item \textbf{Empty:} Used as a placeholder when no additional data is needed.
+\end{itemize}
+
+\section{System Organization}
+
+\subsection{Server-Side}
+The server is responsible for:
+\begin{itemize}
+    \item Listening for client requests.
+    \item Handling file transfer operations using the \texttt{SendFile} and \texttt{ReceiveFile} methods.
+    \item Writing received files to disk.
+\end{itemize}
+
+\subsection{Client-Side}
+The client performs the following tasks:
+\begin{itemize}
+    \item Sending files to the server using the \texttt{SendFile} method.
+    \item Receiving files from the server in chunks using the \texttt{ReceiveFile} method.
+\end{itemize}
+
+\section{Implementation Details}
+
+\subsection{Protocol Buffer Definition}
+The protobuf file defines the service and message structures:
+\begin{lstlisting}[language=protobuf, caption=Protocol Buffer Definition]
+syntax = "proto3";
+
+package filetransfer;
+
+service FileTransfer {
+    rpc SendFile(FileRequest) returns (FileResponse);
+    rpc ReceiveFile(FileChunk) returns (Empty);
+}
+
+message FileRequest {
+    string filename = 1;
+    bytes content = 2;
+}
+
+message FileResponse {
+    bool success = 1;
+}
+
+message FileChunk {
+    bytes content = 1;
+}
+
+message Empty {}
+\end{lstlisting}
+
+\subsection{Client Implementation}
+The client implementation (\texttt{rpcclient.cpp}) includes:
+\begin{lstlisting}[language=C++, caption=Client Implementation]
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <grpcpp/grpcpp.h>
+#include "file_transfer.grpc.pb.h"
+
+using grpc::Channel;
+using grpc::ClientContext;
+using grpc::Status;
+using filetransfer::FileTransfer;
+using filetransfer::FileRequest;
+using filetransfer::FileResponse;
+using filetransfer::FileChunk;
+using filetransfer::Empty;
+
+class FileTransferClient {
+public:
+    FileTransferClient(std::shared_ptr<Channel> channel)
+            : stub_(FileTransfer::NewStub(channel)) {}
+
+    bool SendFile(const std::string& filename) {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file.is_open()) {
+            std::cerr << "Error opening file for reading" << std::endl;
+            return false;
+        }
+
+        FileRequest request;
+        request.set_filename(filename);
+        std::string content((std::istreambuf_iterator<char>(file)), (std::istreambuf_iterator<char>()));
+        request.set_content(content);
+
+        FileResponse response;
+        ClientContext context;
+        Status status = stub_->SendFile(&context, request, &response);
+        if (status.ok() && response.success()) {
+            std::cout << "File sent successfully!" << std::endl;
+            return true;
+        } else {
+            std::cerr << "Error sending file: " << status.error_message() << std::endl;
+            return false;
+        }
+    }
+
+    void ReceiveFile() {
+        FileTransfer::Stub stub(grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials()));
+        Empty request;
+        FileChunk chunk;
+        ClientContext context;
+
+        std::ofstream file("received_file.txt", std::ios::binary);
+        if (!file.is_open()) {
+            std::cerr << "Error opening file for writing" << std::endl;
+            return;
+        }
+
+        while (!file.eof()) {
+            chunk.set_content(std::string((std::istreambuf_iterator<char>(file)), (std::istreambuf_iterator<char>())));
+            Status status = stub.ReceiveFile(&context, chunk, &request);
+            if (!status.ok()) {
+                std::cerr << "Error receiving file: " << status.error_message() << std::endl;
+                return;
+            }
+        }
+        std::cout << "File received successfully!" << std::endl;
+    }
+
+private:
+    std::unique_ptr<FileTransfer::Stub> stub_;
+};
+
+int main(int argc, char** argv) {
+    FileTransferClient client(grpc::CreateChannel("localhost:50051", grpc::InsecureChannelCredentials()));
+    client.SendFile("sample_file.txt");
+    client.ReceiveFile();
+    return 0;
+}
+\end{lstlisting}
+
+\subsection{Server Implementation}
+The server implementation (\texttt{rpcserver.cpp}) includes:
+\begin{lstlisting}[language=C++, caption=Server Implementation]
+#include <iostream>
+#include <memory>
+#include <string>
+#include <fstream>
+#include <grpcpp/grpcpp.h>
+#include "file_transfer.grpc.pb.h"
+
+using grpc::Server;
+using grpc::ServerBuilder;
+using grpc::ServerContext;
+using grpc::Status;
+using filetransfer::FileTransfer;
+using filetransfer::FileRequest;
+using filetransfer::FileResponse;
+using filetransfer::FileChunk;
+using filetransfer::Empty;
+
+class FileTransferServiceImpl final : public FileTransfer::Service {
+
+    Status SendFile(ServerContext* context, const FileRequest* request, FileResponse* response) override {
+
+        std::ofstream file(request->filename(), std::ios::binary);
+        if (!file.is_open()) {
+            std::cerr << "Error opening file for writing" << std::endl;
+            return Status::OK;
+        }
+
+        file.write(request->content().c_str(), request->content().length());
+        file.close();
+
+        response->set_success(true);
+        return Status::OK;
+    }
+
+    Status ReceiveFile(ServerContext* context, const FileChunk* request, Empty* response) override {
+
+        std::ofstream file("received_file.txt", std::ios::binary | std::ios::app);
+        if (!file.is_open()) {
+            std::cerr << "Error opening file for writing" << std::endl;
+            return Status::OK;
+        }
+
+        file.write(request->content().c_str(), request->content().length());
+        file.close();
+        return Status::OK;
+    }
+};
+
+void RunServer() {
+    std::string server_address("0.0.0.0:50051");
+    FileTransferServiceImpl service;
+
+    ServerBuilder builder;
+    builder.AddListeningPort(server_address, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service);
+
+    std::unique_ptr<Server> server(builder.BuildAndStart());
+    std::cout << "Server listening on " << server_address << std::endl;
+    server->Wait();
+}
+
+int main() {
+    RunServer();
+    return 0;
+}
+\end{lstlisting}
+
+\section{File Transfer Workflow}
+
+\subsection{Sending a File}
+\begin{enumerate}
+    \item The client reads the file content.
+    \item Constructs a \texttt{FileRequest} message.
+    \item Sends the message to the server using \texttt{SendFile}.
+    \item The server writes the file to disk and responds with a success status.
+\end{enumerate}
+
+\subsection{Receiving a File}
+\begin{enumerate}
+    \item The client requests a file in chunks.
+    \item The server sends chunks using \texttt{FileChunk} messages.
+    \item The client reconstructs the file locally.
+\end{enumerate}
+
+\section{Conclusion}
+This RPC File Transfer system showcases efficient file handling using gRPC. The modular design ensures robust client-server communication. Future enhancements can include error handling and progress tracking.
+
+\end{document}
